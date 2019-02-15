@@ -1,14 +1,14 @@
 #include "options.hpp"
-#include <getopt.h>
 #include <iostream>
 
-bool Options::parse(int argc, char *argv[])
+bool Options::parse(OsPort& os, int argc, char *argv[])
 {
   int ch;
 
-  optind = 1;
-  opterr = 0;
-  while ((ch = getopt(argc, argv, "a:p:i:m:vh")) != -1)
+  char *optarg = nullptr;
+  int optind = 0;
+
+  while ((ch = os.getopt(argc, argv, "a:p:i:m:vh", optarg, optind)) != -1)
   {
     switch (ch)
     {

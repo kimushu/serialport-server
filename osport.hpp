@@ -17,6 +17,8 @@ public:
 
   virtual ~OsPort() = default;
 
+  virtual int getopt(int argc, char *argv[], const char *options, char*& optarg, int& optind) = 0;
+
   virtual int getpid() = 0;
   virtual Socket::shared_ptr create_socket_tcp() = 0;
 };

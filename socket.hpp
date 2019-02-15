@@ -2,6 +2,7 @@
 #define _SOCKET_HPP_
 
 #include <memory>
+#include <string>
 
 class Socket
 {
@@ -17,6 +18,8 @@ public:
   virtual void get_address(std::string& address, int& port) = 0;
   virtual void listen() = 0;
   virtual shared_ptr accept() = 0;
+  virtual int recv(void *buffer, int length) = 0;
+  virtual int send(const void *buffer, int length) = 0;
   virtual void close() = 0;
 
 };

@@ -1,13 +1,15 @@
 #ifndef _OPTIONS_HPP_
 #define _OPTIONS_HPP_
 
+#include "osport.hpp"
+
 class Options
 {
 public:
   Options() : address("127.0.0.1"), port(0), idfile(nullptr), max_clients(10), verbosity(0) {}
   ~Options() {}
 
-  bool parse(int argc, char *argv[]);
+  bool parse(OsPort& os, int argc, char *argv[]);
 
   const char *get_address() const
   {

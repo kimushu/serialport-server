@@ -1,13 +1,19 @@
 BUILD_DIR = build
 
-CMAKE_OPTIONS += -G "Unix Makefiles"
-CMAKE_OPTIONS += -DCMAKE_BUILD_TYPE="Release"
+ifneq ($(OS),Windows_NT)
+CMAKE_OPTIONS += -DCMAKE_BUILD_TYPE=Release
+endif
 
 .PHONY: all clean depend
 all:
 
+ifneq ($(OS),Windows_NT)
 all clean depend: $(BUILD_DIR)/Makefile
 	make -C $(dir $<) $(MAKECMDGOALS)
+else
+all: $(BUILD_DIR)/Makefile
+	cmake --build $(BUILD_DIR) --target ALL_BUILD --config Release
+endif
 
 $(BUILD_DIR)/Makefile:
 	mkdir -p $(dir $@)

@@ -3,6 +3,7 @@
 #include "osport.hpp"
 #include "socket.hpp"
 #include <fstream>
+#include <sstream>
 #include <iostream>
 #include <list>
 #include <thread>
@@ -28,18 +29,28 @@ public:
       auto socket = server->accept();
       cleanup_clients();
       iter->reset(new std::thread([this, iter, socket](){
+        std::stringstream ss;
+        ss << "(thread #" << std::this_thread::get_id() << ") ";
+        const auto prefix = ss.str();
+
         if (opt.get_verbosity() >= 1) {
-          std::cerr << "Info: thread started: " << std::this_thread::get_id() << std::endl;
+          std::cerr << "Info: " << prefix << "started." << std::endl;
         }
-        run_client(socket);
+
+        try {
+          talk(socket);
+        } catch (const std::exception& e) {
+          std::cerr << "Error: " << prefix << e.what() << std::endl;
+        }
         socket->close();
+
         {
           std::lock_guard<std::mutex> lock(mutex);
           dead_clients.splice(dead_clients.begin(), std::move(active_clients), iter);
         }
         cond.notify_one();
         if (opt.get_verbosity() >= 1) {
-          std::cerr << "Info: thread exiting: " << std::this_thread::get_id() << std::endl;
+          std::cerr << "Info: " << prefix << "exiting." << std::endl;
         }
       }));
     }
@@ -49,7 +60,7 @@ private:
   std::unique_lock<std::mutex> wait_empty_client()
   {
     std::unique_lock<std::mutex> lock(mutex);
-    cond.wait(lock, [this]{ return active_clients.size() < opt.get_max_clients(); });
+    cond.wait(lock, [this]{ return (int)active_clients.size() < opt.get_max_clients(); });
     return lock;
   }
 
@@ -66,7 +77,7 @@ private:
     }
   }
 
-  void run_client(Socket::shared_ptr socket)
+  void talk(const Socket::shared_ptr& client)
   {
   }
 
@@ -81,12 +92,13 @@ private:
 int main(int argc, char *argv[])
 {
   try {
+    // Create OS port
+    auto os = OsPort::create();
+
     Options opt;
-    if (!opt.parse(argc, argv)) {
+    if (!opt.parse(*os.get(), argc, argv)) {
       return EXIT_FAILURE;
     }
-
-    auto os = OsPort::create();
 
     // Create a new socket
     auto server = os->create_socket_tcp();

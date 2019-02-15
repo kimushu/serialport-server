@@ -1,9 +1,11 @@
 #include "socket.hpp"
 #include "osport.hpp"
-#include "winsock2.h"
 #include <stdexcept>
 #include <string>
 #include <cassert>
+
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include "winsock2.h"
 
 class Win32Socket : public Socket
 {
@@ -86,6 +88,20 @@ public:
     return Socket::shared_ptr(new Win32Socket(client));
   }
 
+  virtual int recv(void *buffer, int length)
+  {
+    assert(socket >= 0);
+
+    return ::recv(socket, (char *)buffer, length, 0);
+  }
+
+  virtual int send(const void *buffer, int length)
+  {
+    assert(socket >= 0);
+
+    return ::send(socket, (const char *)buffer, length, 0);
+  }
+
   virtual void close()
   {
     if (socket >= 0) {
@@ -114,6 +130,55 @@ public:
   virtual ~Win32OsPort()
   {
     Win32Socket::cleanup();
+  }
+
+  virtual int getopt(int argc, char *argv[], const char *options, char*& optarg, int& optind)
+  {
+    static char *nextchar;
+
+    if (optind == 0) {
+      optind = 1;
+      nextchar = nullptr;
+    }
+
+    for (;;) {
+      char ch;
+      if (nextchar && (ch = nextchar[0]) != '\0') {
+        auto opt = strchr(options, ch);
+        if (!opt) {
+          return '?';
+        }
+        if (opt[1] == ':') {
+          if (nextchar[1] != '\0') {
+            optarg = nextchar + 1;
+          } else {
+            optarg = argv[++optind];
+          }
+          ++optind;
+          nextchar = nullptr;
+        } else {
+          optarg = nullptr;
+          ++nextchar;
+        }
+        return ch;
+      }
+
+      if (optind >= argc) {
+        // No more argument
+        return -1;
+      }
+
+      if (argv[optind][0] != '-') {
+        // Stop at non-option argument
+        return -1;
+      }
+
+      nextchar = &argv[optind][1];
+      if (nextchar[0] == '-') {
+        // Stop at "--" option
+        return -1;
+      }
+    }
   }
 
   virtual int getpid()
