@@ -1,0 +1,3 @@
+[submodule "json5pp"]
+	path = json5pp
+	url = https://github.com/kimushu/json5pp.git
