@@ -1,14 +1,15 @@
 cmake_minimum_required(VERSION 3.1)
 project(serialport-server)
-add_executable(serialport-server main.cpp options.cpp)
+add_executable(serialport-server main.cpp options.cpp server.cpp client.cpp)
 
 if (CMAKE_HOST_WIN32)
 
 #----------------------------------------------------------------
 # for Windows
 
+#set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
 target_sources(serialport-server PUBLIC osport_win32.cpp)
-target_link_libraries(serialport-server ws2_32)
+target_link_libraries(serialport-server ws2_32 setupapi)
 
 elseif (CMAKE_HOST_UNIX)
 

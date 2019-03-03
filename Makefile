@@ -22,3 +22,7 @@ $(BUILD_DIR)/Makefile:
 .PHONY: distclean
 distclean:
 	rm -rf $(BUILD_DIR)
+
+.PHONY: doc
+doc:
+	doxygen Doxyfile

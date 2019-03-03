@@ -6,6 +6,7 @@
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include "winsock2.h"
+#include "setupapi.h"
 
 class Win32Socket : public Socket
 {
@@ -14,7 +15,7 @@ public:
   {
     WSADATA wsa_data;
     if (WSAStartup(MAKEWORD(1, 1), &wsa_data) != 0) {
-      throw std::runtime_error("cannot initialize WinSock: " + error_string());
+      throw std::runtime_error("cannot initialize WinSock: " + error_string_static());
     }
   }
 
@@ -41,7 +42,7 @@ public:
     close();
   }
 
-  virtual void bind(const std::string& address, int port)
+  virtual void bind(const std::string& address, int port) override
   {
     assert(socket >= 0);
 
@@ -55,7 +56,7 @@ public:
     }
   }
 
-  virtual void get_address(std::string& address, int& port)
+  virtual void get_address(std::string& address, int& port) override
   {
     assert(socket >= 0);
 
@@ -68,7 +69,7 @@ public:
     port = ntohs(saddr.sin_port);
   }
 
-  virtual void listen()
+  virtual void listen() override
   {
     assert(socket >= 0);
 
@@ -77,7 +78,7 @@ public:
     }
   }
 
-  virtual Socket::shared_ptr accept()
+  virtual Socket::shared_ptr accept() override
   {
     assert(socket >= 0);
     
@@ -88,21 +89,7 @@ public:
     return Socket::shared_ptr(new Win32Socket(client));
   }
 
-  virtual int recv(void *buffer, int length)
-  {
-    assert(socket >= 0);
-
-    return ::recv(socket, (char *)buffer, length, 0);
-  }
-
-  virtual int send(const void *buffer, int length)
-  {
-    assert(socket >= 0);
-
-    return ::send(socket, (const char *)buffer, length, 0);
-  }
-
-  virtual void close()
+  virtual void close() override
   {
     if (socket >= 0) {
       closesocket(socket);
@@ -110,8 +97,29 @@ public:
     }
   }
 
+protected:
+
+  virtual int recv_bytes(void *buffer, int length) override
+  {
+    assert(socket >= 0);
+
+    return ::recv(socket, (char *)buffer, length, 0);
+  }
+
+  virtual int send_bytes(const void *buffer, int length) override
+  {
+    assert(socket >= 0);
+
+    return ::send(socket, (const char *)buffer, length, 0);
+  }
+
 private:
-  static std::string error_string()
+  virtual std::string error_string() override
+  {
+    return Win32Socket::error_string_static();
+  }
+
+  static std::string error_string_static()
   {
     return std::to_string(WSAGetLastError());
   }
@@ -119,11 +127,50 @@ private:
   SOCKET socket;
 };
 
+class Win32RegKey
+{
+public:
+  Win32RegKey(HKEY hKey) : hKey(hKey) {}
+  ~Win32RegKey()
+  {
+    if (*this) {
+      RegCloseKey(hKey);
+      hKey = (HKEY)INVALID_HANDLE_VALUE;
+    }
+  }
+
+  operator bool() const { return (hKey != INVALID_HANDLE_VALUE); }
+
+  bool QueryValueString(const char *name, std::string& buffer)
+  {
+    if (!*this) {
+      return false;
+    }
+
+    DWORD len = 0;
+    DWORD type;
+    int ret = RegQueryValueExA(hKey, name, nullptr, &type, nullptr, &len);
+    if ((ret != ERROR_SUCCESS) || (type != REG_SZ)) {
+      return false;
+    }
+    buffer.resize(len);
+    if (RegQueryValueExA(hKey, name, nullptr, &type, (PBYTE)&buffer[0], &len) != ERROR_SUCCESS) {
+      return false;
+    }
+    buffer.resize(len - 1);
+    return true;
+  }
+
+protected:
+  HKEY hKey;
+};
+
 class Win32OsPort : public OsPort
 {
 public:
   Win32OsPort()
   {
+    SetConsoleOutputCP(CP_UTF8);
     Win32Socket::startup();
   }
 
@@ -132,7 +179,7 @@ public:
     Win32Socket::cleanup();
   }
 
-  virtual int getopt(int argc, char *argv[], const char *options, char*& optarg, int& optind)
+  virtual int getopt(int argc, char *argv[], const char *options, char*& optarg, int& optind) override
   {
     static char *nextchar;
 
@@ -181,14 +228,97 @@ public:
     }
   }
 
-  virtual int getpid()
+  virtual int getpid() override
   {
     return GetCurrentProcessId();
   }
 
-  virtual Socket::shared_ptr create_socket_tcp()
+  virtual Socket::shared_ptr create_socket_tcp() override
   {
     return Socket::shared_ptr(new Win32Socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+  }
+
+  virtual void enumerate(std::vector<SerialPortInfo>& list) override
+  {
+    list.clear();
+
+    HDEVINFO hDevInfoSet = SetupDiGetClassDevs(&GUID_DEVINTERFACE_COMPORT,
+      nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (hDevInfoSet == INVALID_HANDLE_VALUE) {
+      return;
+    }
+
+    for (int index = 0;; ++index) {
+      SP_DEVINFO_DATA did = { 0 };
+      did.cbSize = sizeof(did);
+
+      // Get port name
+      if (SetupDiEnumDeviceInfo(hDevInfoSet, index, &did) == 0) {
+        break;
+      }
+      Win32RegKey key(SetupDiOpenDevRegKey(hDevInfoSet, &did, DICS_FLAG_GLOBAL, 0,
+        DIREG_DEV, KEY_QUERY_VALUE));
+      std::string name;
+      if (!key) {
+        continue;
+      }
+      if (!key.QueryValueString("PortName", name)) {
+        continue;
+      }
+      if (name.substr(0, 3) != "COM") {
+        continue;
+      }
+      std::size_t pos;
+      int order = std::stoi(name.substr(3), &pos);
+      if (pos != (name.size() - 3)) {
+        continue;
+      }
+
+      std::string desc;
+      do {
+        // Get port description
+        DWORD dataType;
+        DWORD length;
+        if (!SetupDiGetDeviceRegistryPropertyA(hDevInfoSet, &did, SPDRP_DEVICEDESC,
+            &dataType, nullptr, 0, &length)) {
+          if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+            break;
+          }
+        }
+        desc.resize(length);
+        if (!SetupDiGetDeviceRegistryPropertyA(hDevInfoSet, &did, SPDRP_DEVICEDESC,
+            &dataType, (PBYTE)&desc[0], length, &length)) {
+          break;
+        }
+        if (dataType != REG_SZ) {
+          break;
+        }
+        desc.resize(length - 1);
+        desc = MultiByteToUtf8(desc);
+      } while (0);
+      list.emplace_back(name, desc);
+      list.back().order = order;
+    }
+  }
+
+  static std::string MultiByteToUtf8(const std::string& src)
+  {
+    if (src.empty()) {
+      return "";
+    }
+    std::wstring buf;
+    buf.resize(src.size());
+    int wchars = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED,
+                  &src[0], src.size(), &buf[0], buf.size());
+    if (wchars == 0) {
+      return "";
+    }
+    std::string buf8;
+    buf8.resize(wchars * 3);
+    int chars = WideCharToMultiByte(CP_UTF8, WC_SEPCHARS,
+                  &buf[0], wchars, &buf8[0], buf8.size(), nullptr, nullptr);
+    buf8.resize(chars);
+    return buf8;
   }
 };
 

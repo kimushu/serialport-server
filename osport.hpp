@@ -5,13 +5,27 @@
 #include "socket.hpp"
 #include <memory>
 
+struct SerialPortInfo
+{
+  std::string path;
+  std::string name;
+  int vendor_id;
+  int product_id;
+  int order;
+
+  SerialPortInfo(const std::string& path, const std::string& name)
+  : path(path), name(name)
+  {
+  }
+};
+
 class OsPort
 {
 protected:
   OsPort() = default;
 
 public:
-  typedef std::shared_ptr<OsPort> shared_ptr;
+  using shared_ptr = std::shared_ptr<OsPort>;
 
   static shared_ptr create();
 
@@ -21,6 +35,7 @@ public:
 
   virtual int getpid() = 0;
   virtual Socket::shared_ptr create_socket_tcp() = 0;
+  virtual void enumerate(std::vector<SerialPortInfo>& list) = 0;
 };
 
 #endif /* _OSPORT_HPP_ */
