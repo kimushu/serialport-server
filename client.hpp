@@ -17,13 +17,13 @@ public:
   void run(const Socket::shared_ptr& socket);
 
 private:
-  void list(const jvalue& input, jvalue& output);
-  void open(const jvalue& input, jvalue& output);
-  void setup(const jvalue& input, jvalue& output, bool with_open = false);
-  void modem(const jvalue& input, jvalue& output);
-  void write(const jvalue& input, jvalue& output);
-  void read(const jvalue& input, jvalue& output);
-  void close(const jvalue& input, jvalue& output);
+  void list(const jvalue& input, jvalue::object_type& output, int session);
+  void open(const jvalue& input, jvalue::object_type& output, int session);
+  void setup(const jvalue& input, jvalue::object_type& output, int session);
+  void modem(const jvalue& input, jvalue::object_type& output, int session);
+  void write(const jvalue& input, jvalue::object_type& output, int session);
+  void read(const jvalue& input, jvalue::object_type& output, int session);
+  void close(const jvalue& input, jvalue::object_type& output, int session);
 
 private:
   Server& server;

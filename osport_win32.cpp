@@ -238,14 +238,14 @@ public:
     return Socket::shared_ptr(new Win32Socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
   }
 
-  virtual void enumerate(std::vector<SerialPortInfo>& list) override
+  virtual std::vector<SerialPortInfo> enumerate() override
   {
-    list.clear();
+    std::vector<SerialPortInfo> list;
 
     HDEVINFO hDevInfoSet = SetupDiGetClassDevs(&GUID_DEVINTERFACE_COMPORT,
       nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (hDevInfoSet == INVALID_HANDLE_VALUE) {
-      return;
+      return list;
     }
 
     for (int index = 0;; ++index) {
@@ -299,6 +299,8 @@ public:
       list.emplace_back(name, desc);
       list.back().order = order;
     }
+
+    return list;
   }
 
   static std::string MultiByteToUtf8(const std::string& src)
