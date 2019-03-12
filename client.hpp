@@ -19,7 +19,7 @@ public:
 private:
   void list(const jvalue& input, jvalue::object_type& output, int session);
   void open(const jvalue& input, jvalue::object_type& output, int session);
-  void setup(const jvalue& input, jvalue::object_type& output, int session);
+  void config(const jvalue& input, jvalue::object_type& output, int session);
   void modem(const jvalue& input, jvalue::object_type& output, int session);
   void write(const jvalue& input, jvalue::object_type& output, int session);
   void read(const jvalue& input, jvalue::object_type& output, int session);

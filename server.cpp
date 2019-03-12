@@ -48,6 +48,19 @@ void Server::run(const Socket::shared_ptr& socket)
   }
 }
 
+std::unique_lock<std::mutex> Server::get_session_handle(int session, handle_type& handle)
+{
+  std::unique_lock<std::mutex> lock(handles_mutex);
+  if ((session < 0) || (handles.size() <= session)) {
+    lock.unlock();
+    handle = nullptr;
+    return lock;
+  }
+
+  handle = handles.at(session);
+  return lock;
+}
+
 std::unique_lock<std::mutex> Server::wait_empty_client()
 {
   std::unique_lock<std::mutex> lock(mutex);

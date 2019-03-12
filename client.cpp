@@ -25,7 +25,7 @@ void Client::run(const Socket::shared_ptr& socket)
   } const operations[] = {
     { "list", &Client::list },
     { "open", &Client::open },
-    { "setup", &Client::setup },
+    { "config", &Client::config },
     { "modem", &Client::modem },
     { "write", &Client::write },
     { "read", &Client::read },
@@ -105,29 +105,84 @@ void Client::open(const jvalue& input, jvalue::object_type& output, int session)
 }
 
 /**
- * @brief Process "setup" operation
+ * @brief Process "config" operation
  * 
  * @param input A reference to input JSON value
  * @param output A reference to object container for output JSON value
  * @param session Not used
  */
-void Client::setup(const jvalue& input, jvalue::object_type& output, int session)
+void Client::config(const jvalue& input, jvalue::object_type& output, int session)
 {
   bool no_result = true;
   if (session <= 0) {
     no_result = false;
     session = input.at("session").as_integer();
   }
+  SerialPortConfig config_change = {0};
   const auto& baud = input.at("baud");
-  const bool set_baud = !baud.is_null();
+  if (!baud.is_null()) {
+    config_change.baud_rate = baud.as_integer();
+    config_change.field_mask |= SerialPortConfig::SP_FIELD_BAUD_RATE;
+  }
   const auto& bits = input.at("bits");
-  const bool set_bits = !bits.is_null();
+  if (!bits.is_null()) {
+    const auto value = bits.as_integer();
+    if ((value < SerialPortConfig::SP_DATABITS_5) ||
+        (SerialPortConfig::SP_DATABITS_8 < value)) {
+      throw std::invalid_argument("invalid data bits: " + std::to_string(value));
+    }
+    config_change.data_bits = (SerialPortConfig::DataBitsMode)value;
+    config_change.field_mask |= SerialPortConfig::SP_FIELD_DATA_BITS;
+  }
   const auto& parity = input.at("parity");
-  const bool set_parity = !parity.is_null();
+  if (!parity.is_null()) {
+    const auto& value = parity.as_string();
+    if (value == "none") {
+      config_change.parity = SerialPortConfig::SP_PARITY_NONE;
+    } else if (value == "odd") {
+      config_change.parity = SerialPortConfig::SP_PARITY_ODD;
+    } else if (value == "even") {
+      config_change.parity = SerialPortConfig::SP_PARITY_EVEN;
+    } else if (value == "mark") {
+      config_change.parity = SerialPortConfig::SP_PARITY_MARK;
+    } else if (value == "space") {
+      config_change.parity = SerialPortConfig::SP_PARITY_SPACE;
+    } else {
+      throw std::invalid_argument("invalid parity mode: " + value);
+    }
+    config_change.field_mask |= SerialPortConfig::SP_FIELD_PARITY;
+  }
   const auto& stop = input.at("stop");
-  const bool set_stop = !stop.is_null();
+  if (!stop.is_null()) {
+    const auto value = stop.as_number();
+    if (value == 1.0) {
+      config_change.stop_bits = SerialPortConfig::SP_STOPBITS_1;
+    } else if (value == 1.5) {
+      config_change.stop_bits = SerialPortConfig::SP_STOPBITS_1_5;
+    } else if (value == 2.0) {
+      config_change.stop_bits = SerialPortConfig::SP_STOPBITS_2;
+    } else {
+      throw std::invalid_argument("invalid stop bits: " + std::to_string(value));
+    }
+    config_change.field_mask |= SerialPortConfig::SP_FIELD_STOP_BITS;
+  }
   const auto& flow = input.at("flow");
-  const bool set_flow = !flow.is_null();
+  if (!flow.is_null()) {
+    const auto& value = flow.as_string();
+    if (value == "none") {
+      config_change.flow_control = SerialPortConfig::SP_FLOWCONTROL_NONE;
+    } else if (value == "rts/cts") {
+      config_change.flow_control = SerialPortConfig::SP_FLOWCONTROL_RTS_CTS;
+    } else if (value == "dtr/dsr") {
+      config_change.flow_control = SerialPortConfig::SP_FLOWCONTROL_DTR_DSR;
+    } else {
+      throw std::invalid_argument("invalid flow control: " + value);
+    }
+    config_change.field_mask |= SerialPortConfig::SP_FIELD_FLOW_CONTROL;
+  }
+
+  Server::handle_type handle;
+  auto lock = server.get_session_handle(session, handle);
 }
 
 /**

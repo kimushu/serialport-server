@@ -19,8 +19,20 @@ struct SerialPortInfo
   }
 };
 
-struct SerialPortSetup
+struct SerialPortConfig
 {
+  enum FieldMask
+  {
+    SP_FIELD_BAUD_RATE    = (1<<0),
+    SP_FIELD_PARITY       = (1<<1),
+    SP_FIELD_DATA_BITS    = (1<<2),
+    SP_FIELD_STOP_BITS    = (1<<3),
+    SP_FIELD_FLOW_CONTROL = (1<<4),
+    SP_FIELD_XON_CHAR     = (1<<5),
+    SP_FIELD_XOFF_CHAR    = (1<<6),
+    SP_FIELD_ERROR_CHAR   = (1<<7),
+  };
+  int field_mask;             ///< Combination of SP_FIELD_*
   int baud_rate;              ///< Baud rate in bps
   enum ParityMode
   {
@@ -42,13 +54,16 @@ struct SerialPortSetup
     SP_STOPBITS_1,
     SP_STOPBITS_1_5,
     SP_STOPBITS_2,
-  }
+  } stop_bits;                ///< Stop bits
   enum FlowControlMode
   {
     SP_FLOWCONTROL_NONE,
     SP_FLOWCONTROL_RTS_CTS,
     SP_FLOWCONTROL_DTR_DSR,
-  } flow_control
+  } flow_control;             ///< Flow control
+  char xon_char;              ///< XON character
+  char xoff_char;             ///< XOFF character
+  char error_char;            ///< Parity error character
 };
 
 /**
@@ -67,6 +82,11 @@ public:
    * @brief Type alias definition for shared pointer to this class
    */
   using shared_ptr = std::shared_ptr<OsPort>;
+
+  /**
+   * @brief Type alias definition for port handle
+   */
+  using handle_type = void*;
 
   /**
    * @brief Create a new OsPort derived object.
@@ -112,6 +132,31 @@ public:
    * @return A vector
    */
   virtual std::vector<SerialPortInfo> enumerate() = 0;
+
+  /**
+   * @brief Open port
+   * 
+   * @param path Path of port
+   * @return Port handle
+   */
+  virtual handle_type open_port(const char* path) = 0;
+
+  /**
+   * @brief Configure port
+   * 
+   * @param handle Port handle
+   * @param set Config to change
+   * @param get Reference to store current config
+   */
+  virtual void configure_port(handle_type handle, const SerialPortConfig& set, SerialPortConfig& get) = 0;
+
+  /**
+   * @brief Close port
+   * 
+   * @param handle Port handle
+   */
+  virtual void close_port(handle_type handle) = 0;
+
 };
 
 #endif /* _OSPORT_HPP_ */

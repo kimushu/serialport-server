@@ -7,6 +7,27 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include "winsock2.h"
 #include "setupapi.h"
+#include "windows.h"
+
+static std::string MultiByteToUtf8(const std::string& src)
+{
+  if (src.empty()) {
+    return "";
+  }
+  std::wstring buf;
+  buf.resize(src.size());
+  int wchars = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED,
+                &src[0], src.size(), &buf[0], buf.size());
+  if (wchars == 0) {
+    return "";
+  }
+  std::string buf8;
+  buf8.resize(wchars * 3);
+  int chars = WideCharToMultiByte(CP_UTF8, WC_SEPCHARS,
+                &buf[0], wchars, &buf8[0], buf8.size(), nullptr, nullptr);
+  buf8.resize(chars);
+  return buf8;
+}
 
 class Win32Socket : public Socket
 {
@@ -167,6 +188,23 @@ protected:
 
 class Win32OsPort : public OsPort
 {
+protected:
+  std::string get_error_string() const
+  {
+    char *buffer;
+    FormatMessage(
+      FORMAT_MESSAGE_ALLOCATE_BUFFER |
+      FORMAT_MESSAGE_FROM_SYSTEM |
+      FORMAT_MESSAGE_IGNORE_INSERTS,
+      nullptr,
+      GetLastError(),
+      MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+      (LPTSTR)&buffer, 0, nullptr);
+    std::string result(buffer);
+    LocalFree(buffer);
+    return result;
+  }
+
 public:
   Win32OsPort()
   {
@@ -303,25 +341,191 @@ public:
     return list;
   }
 
-  static std::string MultiByteToUtf8(const std::string& src)
+  /**
+   * @brief Open port
+   * 
+   * @param path Path of port
+   * @return Port handle
+   */
+  virtual handle_type open_port(const char* path) override
   {
-    if (src.empty()) {
-      return "";
+    std::string full_path = R"(\\.\)";
+    full_path += path;
+
+    HANDLE hCom = CreateFile(
+      full_path.c_str(),
+      GENERIC_READ | GENERIC_WRITE,
+      0,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OVERLAPPED,
+      nullptr
+    );
+    if (hCom == INVALID_HANDLE_VALUE) {
+      // TODO: exceptions
+      return nullptr;
     }
-    std::wstring buf;
-    buf.resize(src.size());
-    int wchars = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED,
-                  &src[0], src.size(), &buf[0], buf.size());
-    if (wchars == 0) {
-      return "";
-    }
-    std::string buf8;
-    buf8.resize(wchars * 3);
-    int chars = WideCharToMultiByte(CP_UTF8, WC_SEPCHARS,
-                  &buf[0], wchars, &buf8[0], buf8.size(), nullptr, nullptr);
-    buf8.resize(chars);
-    return buf8;
+
+    return (handle_type)hCom;
   }
+
+  /**
+   * @brief Configure port
+   * 
+   * @param handle Port handle
+   * @param set Config to change
+   * @param get Reference to store current config
+   */
+  virtual void configure_port(handle_type handle, const SerialPortConfig& set, SerialPortConfig& get) override
+  {
+    HANDLE hCom = (HANDLE)handle;
+    DCB dcb;
+
+    // Read current state
+    if (!GetCommState(hCom, &dcb)) {
+      throw std::runtime_error("cannot get old state: " + get_error_string());
+    }
+    
+    // Change state
+    if (set.field_mask & SerialPortConfig::SP_FIELD_BAUD_RATE) {
+      dcb.BaudRate = set.baud_rate;
+    }
+    if (set.field_mask & SerialPortConfig::SP_FIELD_DATA_BITS) {
+      switch (set.data_bits) {
+      case SerialPortConfig::SP_DATABITS_5:
+        dcb.ByteSize = 5;
+        break;
+      case SerialPortConfig::SP_DATABITS_6:
+        dcb.ByteSize = 6;
+        break;
+      case SerialPortConfig::SP_DATABITS_7:
+        dcb.ByteSize = 7;
+        break;
+      case SerialPortConfig::SP_DATABITS_8:
+        dcb.ByteSize = 8;
+        break;
+      default:
+        throw std::invalid_argument("unsupported data bits: " + std::to_string(set.data_bits));
+      }
+    }
+    if (set.field_mask & SerialPortConfig::SP_FIELD_PARITY) {
+      switch (set.parity) {
+      case SerialPortConfig::SP_PARITY_NONE:
+        dcb.Parity = NOPARITY;
+        break;
+      case SerialPortConfig::SP_PARITY_ODD:
+        dcb.Parity = ODDPARITY;
+        break;
+      case SerialPortConfig::SP_PARITY_EVEN:
+        dcb.Parity = EVENPARITY;
+        break;
+      case SerialPortConfig::SP_PARITY_MARK:
+        dcb.Parity = MARKPARITY;
+        break;
+      case SerialPortConfig::SP_PARITY_SPACE:
+        dcb.Parity = SPACEPARITY;
+        break;
+      default:
+        throw std::invalid_argument("unsupported parity mode: " + std::to_string(set.parity));
+      }
+    }
+    if (set.field_mask & SerialPortConfig::SP_FIELD_STOP_BITS) {
+      switch (set.stop_bits) {
+      case SerialPortConfig::SP_STOPBITS_1:
+        dcb.StopBits = ONESTOPBIT;
+        break;
+      case SerialPortConfig::SP_STOPBITS_1_5:
+        dcb.StopBits = ONE5STOPBITS;
+        break;
+      case SerialPortConfig::SP_STOPBITS_2:
+        dcb.StopBits = TWOSTOPBITS;
+        break;
+      default:
+        throw std::invalid_argument("unsupported stop bits: " + std::to_string(set.stop_bits));
+      }
+    }
+    if (set.field_mask & SerialPortConfig::SP_FIELD_XON_CHAR) {
+      dcb.XonChar = set.xon_char;
+    }
+    if (set.field_mask & SerialPortConfig::SP_FIELD_XOFF_CHAR) {
+      dcb.XoffChar = set.xoff_char;
+    }
+    if (set.field_mask & SerialPortConfig::SP_FIELD_ERROR_CHAR) {
+      dcb.ErrorChar = set.error_char;
+    }
+
+    if (!SetCommState(hCom, &dcb)) {
+      throw std::runtime_error("cannot set state: " + get_error_string());
+    }
+
+    if (!GetCommState(hCom, &dcb)) {
+      throw std::runtime_error("cannot get new state: " + get_error_string());
+    }
+
+    get.baud_rate = dcb.BaudRate;
+    switch (dcb.ByteSize) {
+    case 5:
+      get.data_bits = SerialPortConfig::SP_DATABITS_5;
+      break;
+    case 6:
+      get.data_bits = SerialPortConfig::SP_DATABITS_6;
+      break;
+    case 7:
+      get.data_bits = SerialPortConfig::SP_DATABITS_7;
+      break;
+    case 8:
+      get.data_bits = SerialPortConfig::SP_DATABITS_8;
+      break;
+    default:
+      throw std::invalid_argument("unknown data bits: " + std::to_string(dcb.ByteSize));
+    }
+    switch (dcb.Parity) {
+    case NOPARITY:
+      get.parity = SerialPortConfig::SP_PARITY_NONE;
+      break;
+    case ODDPARITY:
+      get.parity = SerialPortConfig::SP_PARITY_ODD;
+      break;
+    case EVENPARITY:
+      get.parity = SerialPortConfig::SP_PARITY_EVEN;
+      break;
+    case MARKPARITY:
+      get.parity = SerialPortConfig::SP_PARITY_MARK;
+      break;
+    case SPACEPARITY:
+      get.parity = SerialPortConfig::SP_PARITY_SPACE;
+      break;
+    default:
+      throw std::invalid_argument("unknown parity: " + std::to_string(dcb.Parity));
+    }
+    switch (dcb.StopBits) {
+    case ONESTOPBIT:
+      get.stop_bits = SerialPortConfig::SP_STOPBITS_1;
+      break;
+    case ONE5STOPBITS:
+      get.stop_bits = SerialPortConfig::SP_STOPBITS_1_5;
+      break;
+    case TWOSTOPBITS:
+      get.stop_bits = SerialPortConfig::SP_STOPBITS_2;
+      break;
+    default:
+      throw std::invalid_argument("unknown stop bits: " + std::to_string(dcb.StopBits));
+    }
+    get.xon_char = dcb.XonChar;
+    get.xoff_char = dcb.XoffChar;
+    get.error_char = dcb.ErrorChar;
+  }
+
+  /**
+   * @brief Close port
+   * 
+   * @param handle Port handle
+   */
+  virtual void close_port(handle_type handle) override
+  {
+
+  }
+
 };
 
 OsPort::shared_ptr OsPort::create()
